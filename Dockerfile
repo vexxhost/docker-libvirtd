@@ -19,7 +19,7 @@ RUN apt-get update -qq && \
         ovmf \
         pm-utils \
         qemu-block-extra \
-        qemu-efi \
+        qemu-efi-aarch64 \
         qemu-kvm \
         seabios \
         swtpm \
