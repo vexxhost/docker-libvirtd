@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2025 VEXXHOST, Inc.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-FROM ghcr.io/vexxhost/ubuntu-cloud-archive:2025.2@sha256:393e3d9c51fe69efb34cf629d2c9c1c80613b5f09d5c9919a2d959c0a84ab5ec
+FROM ghcr.io/vexxhost/ubuntu-cloud-archive:2023.1@sha256:2d2c3b5921bc65c3c0fc24322a2605c2cf66efbdb48fb158834889128f832551
 RUN apt-get update -qq && \
     apt-get install -qq -y --no-install-recommends \
         ceph-common \
@@ -19,7 +19,7 @@ RUN apt-get update -qq && \
         ovmf \
         pm-utils \
         qemu-block-extra \
-        qemu-efi-aarch64 \
+        qemu-efi \
         qemu-kvm \
         seabios \
         swtpm \
