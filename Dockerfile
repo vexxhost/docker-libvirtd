@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 FROM ghcr.io/vexxhost/ubuntu-cloud-archive:2024.2@sha256:0cf1a7d792da75ebbe5cdc3f05f52c03e2f733e69bb65a6d5c4ba786210cdecb
+RUN groupadd -g 42424 nova && \
+    useradd -u 42424 -g 42424 -M -d /var/lib/nova -s /usr/sbin/nologin -c "Nova User" nova && \
+    mkdir -p /etc/nova /var/log/nova /var/lib/nova /var/cache/nova && \
+    chown -Rv nova:nova /etc/nova /var/log/nova /var/lib/nova /var/cache/nova
 RUN apt-get update -qq && \
     apt-get install -qq -y --no-install-recommends \
         ceph-common \
