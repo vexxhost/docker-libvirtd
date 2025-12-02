@@ -18,6 +18,7 @@ RUN apt-get update -qq && \
         libtpms0 \
         libvirt-clients \
         libvirt-daemon-system \
+        mdevctl \
         openssh-client \
         openvswitch-switch \
         ovmf \
