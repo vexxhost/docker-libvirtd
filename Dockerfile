@@ -8,6 +8,7 @@ RUN groupadd -g 42424 nova && \
     chown -Rv nova:nova /etc/nova /var/log/nova /var/lib/nova /var/cache/nova
 RUN apt-get update -qq && \
     apt-get install -qq -y --no-install-recommends \
+        apparmor \
         ceph-common \
         cgroup-tools \
         dmidecode \
