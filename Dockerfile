@@ -15,6 +15,7 @@ RUN apt-get update -qq && \
         ebtables \
         iproute2 \
         ipxe-qemu \
+        ipxe-qemu-256k-compat-efi-roms \
         kmod \
         libtpms0 \
         libvirt-clients \
