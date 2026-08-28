@@ -1,0 +1,166 @@
+Description: preserve the legacy AMD SPEC_CTRL guest ABI
+ Linux 6.13 changed KVM's AMD SPEC_CTRL capability requirements, which makes
+ otherwise identical AMD hosts reject live migration of existing guests.
+ Preserve SPEC_CTRL only when an AMD guest requests it and KVM provides the
+ IA32_SPEC_CTRL MSR, without changing generic x-force-features semantics.
+Author: VEXXHOST, Inc. <support@vexxhost.com>
+Forwarded: not-needed
+Last-Update: 2026-08-28
+
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index a66e5a3..e9eaf6e 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -5038,6 +5038,20 @@ static void mark_unavailable_features(X86CPU *cpu, FeatureWord w, uint64_t mask,
+     FeatureWordInfo *f = &feature_word_info[w];
+     int i;
+ 
++#ifdef CONFIG_KVM
++    if (cpu->amd_legacy_spec_ctrl &&
++        kvm_enabled() &&
++        kvm_supports_spec_ctrl_msr() &&
++        IS_AMD_CPU(env) &&
++        w == FEAT_7_0_EDX &&
++        (mask & CPUID_7_0_EDX_SPEC_CTRL)) {
++        mask &= ~CPUID_7_0_EDX_SPEC_CTRL;
++        if (verbose_prefix) {
++            warn_report("preserving legacy AMD SPEC_CTRL guest ABI");
++        }
++    }
++#endif
++
+     if (!cpu->force_features) {
+         env->features[w] &= ~mask;
+     }
+@@ -7864,6 +7878,8 @@ static Property x86_cpu_properties[] = {
+     DEFINE_PROP_BOOL("check", X86CPU, check_cpuid, true),
+     DEFINE_PROP_BOOL("enforce", X86CPU, enforce_cpuid, false),
+     DEFINE_PROP_BOOL("x-force-features", X86CPU, force_features, false),
++    DEFINE_PROP_BOOL("x-amd-legacy-spec-ctrl", X86CPU,
++                     amd_legacy_spec_ctrl, true),
+     DEFINE_PROP_BOOL("kvm", X86CPU, expose_kvm, true),
+     DEFINE_PROP_UINT32("phys-bits", X86CPU, phys_bits, 0),
+     DEFINE_PROP_BOOL("host-phys-bits", X86CPU, host_phys_bits, false),
+diff --git a/target/i386/cpu.h b/target/i386/cpu.h
+index 705d925..7a352c8 100644
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -1930,6 +1930,13 @@ struct ArchCPU {
+      * compatibility.
+      */
+     bool force_features;
++    /*
++     * Preserve the legacy AMD SPEC_CTRL guest ABI when KVM provides the
++     * IA32_SPEC_CTRL MSR but no longer advertises CPUID.7.0:EDX[26]. This is
++     * enabled by default in the VEXXHOST downstream build and may be disabled
++     * with x-amd-legacy-spec-ctrl=off.
++     */
++    bool amd_legacy_spec_ctrl;
+     bool expose_kvm;
+     bool expose_tcg;
+     bool migratable;
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index a0bc9ea..558ce36 100644
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -178,6 +178,11 @@ bool kvm_has_exception_payload(void)
+     return has_exception_payload;
+ }
+ 
++bool kvm_supports_spec_ctrl_msr(void)
++{
++    return has_msr_spec_ctrl;
++}
++
+ static bool kvm_x2apic_api_set_flags(uint64_t flags)
+ {
+     KVMState *s = KVM_STATE(current_accel());
+diff --git a/target/i386/kvm/kvm_i386.h b/target/i386/kvm/kvm_i386.h
+index 30fedcf..dbf147a 100644
+--- a/target/i386/kvm/kvm_i386.h
++++ b/target/i386/kvm/kvm_i386.h
+@@ -58,6 +58,7 @@ void kvm_put_apicbase(X86CPU *cpu, uint64_t value);
+ 
+ bool kvm_has_x2apic_api(void);
+ bool kvm_has_waitpkg(void);
++bool kvm_supports_spec_ctrl_msr(void);
+ 
+ uint64_t kvm_swizzle_msi_ext_dest_id(uint64_t address);
+ void kvm_update_msi_routes_all(void *private, bool global,
+diff --git a/tests/avocado/x86_amd_legacy_spec_ctrl.py b/tests/avocado/x86_amd_legacy_spec_ctrl.py
+new file mode 100644
+index 0000000..bc03c94
+--- /dev/null
++++ b/tests/avocado/x86_amd_legacy_spec_ctrl.py
+@@ -0,0 +1,71 @@
++# Validate AMD legacy SPEC_CTRL live-migration compatibility.
++#
++# Copyright (c) 2026 VEXXHOST, Inc.
++#
++# This work is licensed under the terms of the GNU GPL, version 2 or
++# later. See the COPYING file in the top-level directory.
++
++from avocado import skipUnless
++from avocado_qemu import QemuSystemTest
++
++
++class X86CPUFeatureReporting(QemuSystemTest):
++    """:avocado: tags=arch:x86_64"""
++
++    @staticmethod
++    def feature_word(words, eax, ecx, register):
++        for word in words:
++            if (word['cpuid-input-eax'] == eax and
++                    word.get('cpuid-input-ecx', 0) == ecx and
++                    word['cpuid-register'] == register):
++                return word['features']
++        return 0
++
++    def cpu_features(self):
++        cpu_path = self.vm.cmd('query-cpus-fast')[0]['qom-path']
++        present = self.vm.cmd('qom-get', path=cpu_path,
++                              property='feature-words')
++        filtered = self.vm.cmd('qom-get', path=cpu_path,
++                               property='filtered-features')
++        return present, filtered
++
++    def test_force_features_semantics_unchanged(self):
++        """Generic x-force-features still reports unsupported features."""
++        hle_bit = 1 << 4
++
++        self.require_accelerator('tcg')
++        self.vm.add_args('-S', '-accel', 'tcg')
++        self.set_vm_arg('-cpu',
++                        'EPYC-Rome,hle=on,x-force-features=on')
++        self.vm.launch()
++        present, filtered = self.cpu_features()
++
++        self.assertEqual(self.feature_word(present, 7, 0, 'EBX') & hle_bit,
++                         hle_bit)
++        self.assertEqual(self.feature_word(filtered, 7, 0, 'EBX') & hle_bit,
++                         hle_bit)
++
++    @skipUnless('AuthenticAMD' in open('/proc/cpuinfo').read(),
++                'requires an AMD KVM host')
++    def test_amd_legacy_spec_ctrl(self):
++        """The scoped property preserves only AMD SPEC_CTRL reporting.
++
++        :avocado: tags=accel:kvm
++        """
++        spec_ctrl_bit = 1 << 26
++
++        self.require_accelerator('kvm')
++        self.vm.add_args('-S', '-accel', 'kvm')
++        self.set_vm_arg('-cpu', 'EPYC-Rome,spec-ctrl=on')
++        self.vm.launch()
++        cpu_path = self.vm.cmd('query-cpus-fast')[0]['qom-path']
++        self.assertTrue(self.vm.cmd('qom-get', path=cpu_path,
++                                    property='x-amd-legacy-spec-ctrl'))
++        present, filtered = self.cpu_features()
++
++        self.assertEqual(
++            self.feature_word(present, 7, 0, 'EDX') & spec_ctrl_bit,
++            spec_ctrl_bit)
++        self.assertEqual(
++            self.feature_word(filtered, 7, 0, 'EDX') & spec_ctrl_bit,
++            0)
