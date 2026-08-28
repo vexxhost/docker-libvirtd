@@ -1,0 +1,35 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: © 2026 VEXXHOST, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euxo pipefail
+
+: "${QEMU_PACKAGE_VERSION:?QEMU_PACKAGE_VERSION must be set}"
+
+export QUILT_PATCHES=debian/patches
+quilt push -a
+
+while read -r patch; do
+    [[ -n "${patch}" && "${patch}" != \#* ]] || continue
+    install -m 0644 "/patches/qemu/${patch}" "debian/patches/${patch}"
+    printf '%s\n' "${patch}" >> debian/patches/series
+done < /patches/qemu/series
+
+QUILT_PATCH_OPTS="--unified -p1" quilt push -a --fuzz=0 --leave-rejects
+
+DEBFULLNAME="VEXXHOST QEMU Maintainers" \
+DEBEMAIL="support@vexxhost.com" \
+dch \
+    --newversion "${QEMU_PACKAGE_VERSION}" \
+    --distribution noble \
+    "Preserve the legacy AMD SPEC_CTRL guest ABI for live migration"
+
+dpkg-buildpackage --build=any --unsigned-source --unsigned-changes -jauto
+
+mkdir -p /out
+find .. -maxdepth 1 -type f \
+    \( -name 'qemu-system-common_*_*.deb' -o \
+       -name 'qemu-system-x86_*_*.deb' \) \
+    -exec cp -v '{}' /out/ ';'
+
+test "$(find /out -maxdepth 1 -type f -name '*.deb' | wc -l)" -eq 2
