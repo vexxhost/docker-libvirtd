@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: vexxhost/docker-atmosphere/.github/actions/build-image@b35756699f2b0bf127417a05d0a7358d18920c94 # main
+      - uses: vexxhost/docker-atmosphere/.github/actions/build-image@b6113e0668dc85929f783667f0347fc76b272844 # main
         with:
           image-name: libvirtd
           push: ${{ github.event_name != 'pull_request' }}
