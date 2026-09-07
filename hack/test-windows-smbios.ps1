@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: © 2026 VEXXHOST, Inc.
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 
 # Run inside the Windows guest before and after the qualified lifecycle actions.
 param(
