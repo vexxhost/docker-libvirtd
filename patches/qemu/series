@@ -1,1 +1,3 @@
 amd-legacy-spec-ctrl.patch
+smbios-auto-entry-point.patch
+smbios-pc-default-auto.patch
