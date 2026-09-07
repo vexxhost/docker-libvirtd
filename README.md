@@ -16,6 +16,10 @@ cannot be represented by SMBIOS 2.x. The backport preserves QEMU 8.2's
 legacy interfaces and restores user-provided blobs and counters before
 retrying. It does not import the unrelated SMBIOS refactoring from QEMU 9.
 
+The retry also preserves OEM strings supplied through `-smbios type=11,value=`
+or `path=`. This fixes an upstream retry bug that frees those strings during
+the first attempt.
+
 There is an intentional downstream compatibility change: the default is
 also changed for PC/Q35 8.1, 8.2, and Ubuntu noble/noble-v2 machine types.
 Upstream QEMU 9 retains the old 64-bit default for 8.1/8.2, so copying the
@@ -62,8 +66,8 @@ python3 hack/test-smbios.py \
 The tests inspect the actual firmware tables for all affected versioned
 machine names, older defaults, explicit overrides, UUID/identity preservation,
 processor-topology fallback, and large-table fallback with user-provided
-structures. They also boot SeaBIOS and check that it publishes a valid
-32-bit entry point pointing to the expected identity. No guest OS image
+structures and OEM strings. They also boot SeaBIOS and check that it publishes
+a valid 32-bit entry point pointing to the expected identity. No guest OS image
 or network connection is needed.
 
 These tests do not replace Windows, UEFI, or migration qualification.

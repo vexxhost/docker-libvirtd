@@ -20,7 +20,6 @@ import time
 import unittest
 import uuid
 
-
 SYSTEM_UUID = uuid.UUID("00112233-4455-6677-8899-aabbccddeeff")
 MACHINES = (
     "pc-i440fx-8.1",
@@ -283,6 +282,35 @@ class SMBIOS(unittest.TestCase):
                     self.assert_startup_error(
                         f"{machine},smbios-entry-point-type=32", args, "table length"
                     )
+
+    def test_oem_strings_survive_table_size_fallback(self):
+        marker = b"provisioning-marker"
+        with tempfile.TemporaryDirectory(prefix="smbios-oem-") as directory:
+            value_file = Path(directory) / "oem-string.txt"
+            for size in (16, 65536):
+                value = b"X" * size
+                value_file.write_bytes(value)
+                args = [
+                    "-smbios",
+                    f"type=11,value={marker.decode()},path={value_file}",
+                ]
+                for machine in ("pc-i440fx-noble", "pc-q35-noble"):
+                    for entry_point in ("auto", "64"):
+                        with self.subTest(
+                            machine=machine, size=size, entry_point=entry_point
+                        ):
+                            anchor, tables = self.read_tables(
+                                f"{machine},smbios-entry-point-type={entry_point}",
+                                args,
+                            )
+                            version = 3 if size == 65536 or entry_point == "64" else 2
+                            self.assert_tables(anchor, tables, version)
+                            oem = [r for r in records(tables) if r[0] == 11]
+                            self.assertEqual(len(oem), 1)
+                            self.assertEqual(oem[0][4], 2)
+                            self.assertEqual(
+                                oem[0][oem[0][1] :], marker + b"\0" + value + b"\0\0"
+                            )
 
     def test_invalid_device_is_not_hidden_by_fallback(self):
         self.assert_startup_error(
