@@ -7,7 +7,7 @@ ARG FROM=ghcr.io/vexxhost/ubuntu-cloud-archive:main@sha256:8ecef42d4bdd95bafa380
 FROM ${FROM} AS qemu-builder
 ARG TARGETARCH
 ARG QEMU_COMMIT=c509d34e5d97b1949b8daafbb53afdd036c2195d
-ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost2
+ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost3
 RUN if [ "${TARGETARCH}" = amd64 ]; then \
         apt-get update && \
         apt-get install --no-install-recommends -y \
@@ -40,7 +40,7 @@ RUN --network=none if [ "${TARGETARCH}" = amd64 ]; then \
 
 FROM ${FROM}
 ARG TARGETARCH
-ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost2
+ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost3
 RUN groupadd -g 42424 nova && \
     useradd -u 42424 -g 42424 -M -d /var/lib/nova -s /usr/sbin/nologin -c "Nova User" nova && \
     mkdir -p /etc/nova /var/log/nova /var/lib/nova /var/cache/nova && \
@@ -66,6 +66,7 @@ RUN --mount=type=bind,from=qemu-builder,source=/out,target=/qemu-debs,ro \
         openvswitch-switch \
         ovmf \
         pm-utils \
+        python3 \
         qemu-block-extra \
         qemu-efi-aarch64 \
         qemu-kvm \
@@ -86,3 +87,7 @@ RUN --mount=type=bind,from=qemu-builder,source=/out,target=/qemu-debs,ro \
     fi && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+RUN --network=none \
+    --mount=type=bind,source=hack/test-smbios.py,target=/tmp/test-smbios.py,ro \
+    if [ "${TARGETARCH}" = amd64 ]; then python3 /tmp/test-smbios.py -v; fi

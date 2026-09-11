@@ -1,0 +1,33 @@
+Description: preserve OEM strings during automatic SMBIOS fallback
+ Keep type 11 strings supplied through value= and path= until the final
+ entry-point attempt succeeds. QEMU 8.2 caches the completed tables, so
+ release the strings inside the first successful table construction.
+Author: Rico Lin <rlin@vexxhost.com>
+Origin: vendor
+Forwarded: no
+Last-Update: 2026-09-07
+
+--- a/hw/smbios/smbios.c
++++ b/hw/smbios/smbios.c
+@@ -824,8 +824,6 @@
+ 
+     for (i = 0; i < type11.nvalues; i++) {
+         SMBIOS_TABLE_SET_STR_LIST(11, type11.values[i]);
+-        g_free(type11.values[i]);
+-        type11.values[i] = NULL;
+     }
+ 
+     SMBIOS_BUILD_TABLE_POST;
+@@ -1185,6 +1183,12 @@
+         }
+         smbios_entry_point_setup();
+         smbios_immutable = true;
++
++        /* Keep OEM strings alive until entry-point selection has finished. */
++        for (i = 0; i < type11.nvalues; i++) {
++            g_free(type11.values[i]);
++            type11.values[i] = NULL;
++        }
+     }
+ 
+     /* return tables blob and entry point (anchor), and their sizes */
