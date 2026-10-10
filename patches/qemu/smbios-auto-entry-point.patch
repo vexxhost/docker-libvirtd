@@ -1,0 +1,187 @@
+Description: backport automatic SMBIOS entry-point selection to QEMU 8.2
+ Adapt the upstream 32-bit-first builder and processor-count validation to
+ the 8.2 interfaces, preserving the legacy path and immutable table cache.
+ Snapshot the user-provided table bytes and counters before attempting
+ SMBIOS 2.x so a fallback neither duplicates nor loses user structures.
+ This avoids importing the unrelated legacy/global-state refactoring from
+ the original QEMU 9 series.
+Author: Igor Mammedov <imammedo@redhat.com>
+Author: Rico Lin <rlin@vexxhost.com>
+Origin: backport, https://github.com/qemu/qemu/commit/4901b80e13be62fc8ea2d8844941f336076af266
+ https://github.com/qemu/qemu/commit/4840c8a2b4666cf1b320a387c3f8b609258e7654
+ https://github.com/qemu/qemu/commit/5ed7948213af8cba0c6153611aa0aea55069bac2
+Bug: https://gitlab.com/qemu-project/qemu/-/issues/2008
+Last-Update: 2026-09-07
+
+diff --git a/hw/smbios/smbios.c b/hw/smbios/smbios.c
+index 6ffa1f8c..b43e39da 100644
+--- a/hw/smbios/smbios.c
++++ b/hw/smbios/smbios.c
+@@ -470,23 +470,24 @@ opts_init(smbios_register_config);
+  */
+ #define SMBIOS_21_MAX_TABLES_LEN 0xffff
+ 
+-static void smbios_validate_table(MachineState *ms)
++static bool smbios_validate_table(MachineState *ms, Error **errp)
+ {
+     uint32_t expect_t4_count = smbios_legacy ?
+                                         ms->smp.cpus : smbios_smp_sockets;
+ 
+     if (smbios_type4_count && smbios_type4_count != expect_t4_count) {
+-        error_report("Expected %d SMBIOS Type 4 tables, got %d instead",
+-                     expect_t4_count, smbios_type4_count);
+-        exit(1);
++        error_setg(errp, "Expected %d SMBIOS Type 4 tables, got %d instead",
++                   expect_t4_count, smbios_type4_count);
++        return false;
+     }
+ 
+     if (smbios_ep_type == SMBIOS_ENTRY_POINT_TYPE_32 &&
+         smbios_tables_len > SMBIOS_21_MAX_TABLES_LEN) {
+-        error_report("SMBIOS 2.1 table length %zu exceeds %d",
+-                     smbios_tables_len, SMBIOS_21_MAX_TABLES_LEN);
+-        exit(1);
++        error_setg(errp, "SMBIOS 2.1 table length %zu exceeds %d",
++                   smbios_tables_len, SMBIOS_21_MAX_TABLES_LEN);
++        return false;
+     }
++    return true;
+ }
+ 
+ 
+@@ -575,7 +576,7 @@ uint8_t *smbios_get_table_legacy(MachineState *ms, size_t *length)
+     if (!smbios_immutable) {
+         smbios_build_type_0_fields();
+         smbios_build_type_1_fields();
+-        smbios_validate_table(ms);
++        smbios_validate_table(ms, &error_fatal);
+         smbios_immutable = true;
+     }
+     *length = smbios_entries_len;
+@@ -721,7 +722,8 @@ static void smbios_build_type_3_table(void)
+     SMBIOS_BUILD_TABLE_POST;
+ }
+ 
+-static void smbios_build_type_4_table(MachineState *ms, unsigned instance)
++static void smbios_build_type_4_table(MachineState *ms, unsigned instance,
++                                    Error **errp)
+ {
+     char sock_str[128];
+     size_t tbl_len = SMBIOS_TYPE_4_LEN_V28;
+@@ -775,6 +777,11 @@ static void smbios_build_type_4_table(MachineState *ms, unsigned instance)
+     if (tbl_len == SMBIOS_TYPE_4_LEN_V30) {
+         t->core_count2 = t->core_enabled2 = cpu_to_le16(cores_per_socket);
+         t->thread_count2 = cpu_to_le16(threads_per_socket);
++    } else if (t->core_count == 0xFF || t->thread_count == 0xFF) {
++        error_setg(errp, "SMBIOS 2.x cannot represent this processor "
++                   "core/thread count; use "
++                   "-machine smbios-entry-point-type=64");
++        return;
+     }
+ 
+     SMBIOS_BUILD_TABLE_POST;
+@@ -1092,6 +1099,13 @@ void smbios_get_tables(MachineState *ms,
+                        Error **errp)
+ {
+     unsigned i, dimm_cnt, offset;
++    bool automatic = smbios_ep_type == SMBIOS_ENTRY_POINT_TYPE_AUTO;
++    g_autofree uint8_t *usr_tables = NULL;
++    size_t usr_tables_len = smbios_tables_len;
++    unsigned usr_table_max = smbios_table_max;
++    unsigned usr_table_cnt = smbios_table_cnt;
++    int usr_type4_count = smbios_type4_count;
++    Error *local_err = NULL;
+ 
+     if (smbios_legacy) {
+         *tables = *anchor = NULL;
+@@ -1100,6 +1114,13 @@ void smbios_get_tables(MachineState *ms,
+     }
+ 
+     if (!smbios_immutable) {
++        if (automatic) {
++            /* Preserve user blobs and counters for a possible retry. */
++            usr_tables = g_memdup2(smbios_tables, smbios_tables_len);
++            smbios_ep_type = SMBIOS_ENTRY_POINT_TYPE_32;
++        }
++
++build_tables:
+         smbios_build_type_0_table();
+         smbios_build_type_1_table();
+         smbios_build_type_2_table();
+@@ -1109,7 +1130,10 @@ void smbios_get_tables(MachineState *ms,
+         assert(smbios_smp_sockets >= 1);
+ 
+         for (i = 0; i < smbios_smp_sockets; i++) {
+-            smbios_build_type_4_table(ms, i);
++            smbios_build_type_4_table(ms, i, &local_err);
++            if (local_err) {
++                goto build_error;
++            }
+         }
+ 
+         smbios_build_type_8_table();
+@@ -1150,10 +1174,15 @@ void smbios_get_tables(MachineState *ms,
+ 
+         smbios_build_type_32_table();
+         smbios_build_type_38_table();
+-        smbios_build_type_41_table(errp);
++        smbios_build_type_41_table(&local_err);
++        if (local_err) {
++            goto build_error;
++        }
+         smbios_build_type_127_table();
+ 
+-        smbios_validate_table(ms);
++        if (!smbios_validate_table(ms, &local_err)) {
++            goto build_error;
++        }
+         smbios_entry_point_setup();
+         smbios_immutable = true;
+     }
+@@ -1171,6 +1200,26 @@ void smbios_get_tables(MachineState *ms,
+     } else {
+         abort();
+     }
++    return;
++
++build_error:
++    g_clear_pointer(&smbios_tables, g_free);
++    if (automatic && smbios_ep_type == SMBIOS_ENTRY_POINT_TYPE_32) {
++        /* Retry once with the original blobs and counters. */
++        smbios_tables = g_steal_pointer(&usr_tables);
++        smbios_tables_len = usr_tables_len;
++        smbios_table_max = usr_table_max;
++        smbios_table_cnt = usr_table_cnt;
++        smbios_type4_count = usr_type4_count;
++        smbios_ep_type = SMBIOS_ENTRY_POINT_TYPE_64;
++        error_free(local_err);
++        local_err = NULL;
++        goto build_tables;
++    }
++
++    *tables = *anchor = NULL;
++    *tables_len = *anchor_len = 0;
++    error_propagate(errp, local_err);
+ }
+ 
+ static void save_opt(const char **dest, QemuOpts *opts, const char *name)
+diff --git a/qapi/machine.json b/qapi/machine.json
+index b6d634b3..44c9ceb6 100644
+--- a/qapi/machine.json
++++ b/qapi/machine.json
+@@ -1788,10 +1788,14 @@
+ #
+ # @64: SMBIOS version 3.0 (64-bit) Entry Point
+ #
++# @auto: Prefer the 32-bit entry point and fall back to 64-bit when the
++#     configuration cannot be represented by SMBIOS 2.x (since 9.0;
++#     backported to the VEXXHOST 8.2 build).
++#
+ # Since: 7.0
+ ##
+ { 'enum': 'SmbiosEntryPointType',
+-  'data': [ '32', '64' ] }
++  'data': [ '32', '64', 'auto' ] }
+ 
+ ##
+ # @MemorySizeConfiguration:
