@@ -8,6 +8,8 @@ on:
       - main
       - stable/**
 
+permissions: {}
+
 jobs:
   image:
     runs-on: ubuntu-latest
