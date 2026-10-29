@@ -1,0 +1,33 @@
+Description: prefer SMBIOS 2.x for existing PC/Q35 machine types
+ Windows booted with SeaBIOS can fail to discover the SMBIOS 3 entry point.
+ Use the backported auto mode for PC/Q35 8.1/8.2 and Ubuntu noble/noble-v2
+ machine types. Unlike upstream's 9.0 default change, deliberately apply
+ this downstream compatibility fix to the currently deployed machine types.
+ Older types keep their explicit 32-bit defaults, and an explicit
+ smbios-entry-point-type=64 retains the previous behavior.
+ Firmware and mixed-version migration qualification are required before
+ production rollout; this changes the default firmware tables.
+Author: Rico Lin <rlin@vexxhost.com>
+Origin: backport, https://github.com/qemu/qemu/commit/2c7c45b3d0ba097ac99bf4b9a13c6de1d7724032
+Bug: https://gitlab.com/qemu-project/qemu/-/issues/2008
+Forwarded: not-needed
+Last-Update: 2026-09-07
+
+diff --git a/hw/i386/pc.c b/hw/i386/pc.c
+index 7f47e2c1..59d6e43e 100644
+--- a/hw/i386/pc.c
++++ b/hw/i386/pc.c
+@@ -1865,7 +1865,12 @@ static void pc_machine_class_init(ObjectClass *oc, void *data)
+     mc->nvdimm_supported = true;
+     mc->smp_props.dies_supported = true;
+     mc->default_ram_id = "pc.ram";
+-    pcmc->default_smbios_ep_type = SMBIOS_ENTRY_POINT_TYPE_64;
++    /*
++     * Downstream compatibility fix for Windows booted with SeaBIOS. Apply it
++     * to 8.1/8.2 and Ubuntu noble machine types too; older machine types keep
++     * their explicit 32-bit default. An explicit CLI value still overrides it.
++     */
++    pcmc->default_smbios_ep_type = SMBIOS_ENTRY_POINT_TYPE_AUTO;
+ 
+     object_class_property_add(oc, PC_MACHINE_MAX_RAM_BELOW_4G, "size",
+         pc_machine_get_max_ram_below_4g, pc_machine_set_max_ram_below_4g,

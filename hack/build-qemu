@@ -22,7 +22,8 @@ DEBEMAIL="support@vexxhost.com" \
 dch \
     --newversion "${QEMU_PACKAGE_VERSION}" \
     --distribution noble \
-    "Preserve the legacy AMD SPEC_CTRL guest ABI for live migration"
+    "Preserve the legacy AMD SPEC_CTRL guest ABI for live migration" \
+    "Prefer SMBIOS 2.x for Windows with SeaBIOS, with automatic SMBIOS 3 fallback"
 
 dpkg-buildpackage --build=any --unsigned-source --unsigned-changes -jauto
 
