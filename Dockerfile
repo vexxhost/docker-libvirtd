@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: © 2025 VEXXHOST, Inc.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-ARG FROM=ghcr.io/vexxhost/ubuntu-cloud-archive:main@sha256:bb47fe3180858c09e1398cb5105baba78ab719243195eace92dd21a6d99c3414
+ARG FROM=ghcr.io/vexxhost/ubuntu-cloud-archive:main@sha256:6d1a6f2c1246a6b01b3f1569f268307be2b77d9412810fe5f1cbf3359f590165
 
 FROM ${FROM} AS qemu-builder
 ARG TARGETARCH
