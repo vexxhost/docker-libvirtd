@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2025 VEXXHOST, Inc.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-FROM ghcr.io/vexxhost/ubuntu-cloud-archive:2024.2@sha256:5eb5f184c034f686cf995c6e9f97842fe2b4d79ef1ad6f186736e21f479d973d
+FROM ghcr.io/vexxhost/ubuntu-cloud-archive:2024.2@sha256:50fe010413cf27bd94b33afa8aa3613e21f1098067b9c5b7c7aecc08f693fb1d
 RUN groupadd -g 42424 nova && \
     useradd -u 42424 -g 42424 -M -d /var/lib/nova -s /usr/sbin/nologin -c "Nova User" nova && \
     mkdir -p /etc/nova /var/log/nova /var/lib/nova /var/cache/nova && \
