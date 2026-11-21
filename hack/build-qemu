@@ -21,7 +21,7 @@ DEBFULLNAME="VEXXHOST QEMU Maintainers" \
 DEBEMAIL="support@vexxhost.com" \
 dch \
     --newversion "${QEMU_PACKAGE_VERSION}" \
-    --distribution noble \
+    --distribution "$(dpkg-parsechangelog -S Distribution)" \
     "Preserve the legacy AMD SPEC_CTRL guest ABI for live migration"
 
 dpkg-buildpackage --build=any --unsigned-source --unsigned-changes -jauto

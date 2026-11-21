@@ -2,12 +2,12 @@
 # SPDX-FileCopyrightText: © 2025 VEXXHOST, Inc.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-ARG FROM=ghcr.io/vexxhost/ubuntu-cloud-archive:main@sha256:393403d079785b9de57f948c2e86e38af392056365b5276dc490395348e63f29
+ARG FROM=ghcr.io/vexxhost/ubuntu-cloud-archive:2026.2@sha256:7cb411eedd115571a976f1d438af8bba51af093b9ac0dc9b881c8da3360232ae
 
 FROM ${FROM} AS qemu-builder
 ARG TARGETARCH
-ARG QEMU_COMMIT=c509d34e5d97b1949b8daafbb53afdd036c2195d
-ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost2
+ARG QEMU_COMMIT=bb0b78fbc9cb23b9c6dfb53b6075637b75b56794
+ARG QEMU_PACKAGE_VERSION=1:10.2.1+ds-1ubuntu3.3+vexxhost1
 RUN if [ "${TARGETARCH}" = amd64 ]; then \
         apt-get update && \
         apt-get install --no-install-recommends -y \
@@ -40,13 +40,17 @@ RUN --network=none if [ "${TARGETARCH}" = amd64 ]; then \
 
 FROM ${FROM}
 ARG TARGETARCH
-ARG QEMU_PACKAGE_VERSION=1:8.2.2+ds-0ubuntu1.18+vexxhost2
+ARG QEMU_PACKAGE_VERSION=1:10.2.1+ds-1ubuntu3.3+vexxhost1
 RUN groupadd -g 42424 nova && \
     useradd -u 42424 -g 42424 -M -d /var/lib/nova -s /usr/sbin/nologin -c "Nova User" nova && \
     mkdir -p /etc/nova /var/log/nova /var/lib/nova /var/cache/nova && \
     chown -Rv nova:nova /etc/nova /var/log/nova /var/lib/nova /var/cache/nova
 RUN --mount=type=bind,from=qemu-builder,source=/out,target=/qemu-debs,ro \
-    if [ "${TARGETARCH}" = amd64 ]; then QEMU_DEBS=/qemu-debs/*.deb; fi && \
+    if [ "${TARGETARCH}" = amd64 ]; then \
+        QEMU_DEBS=/qemu-debs/*.deb; QEMU_SYSTEM=qemu-system-x86; \
+    else \
+        QEMU_SYSTEM=qemu-system-arm; \
+    fi && \
     apt-get update -qq && \
     apt-get install -qq -y --no-install-recommends \
         apparmor \
@@ -68,7 +72,7 @@ RUN --mount=type=bind,from=qemu-builder,source=/out,target=/qemu-debs,ro \
         pm-utils \
         qemu-block-extra \
         qemu-efi-aarch64 \
-        qemu-kvm \
+        ${QEMU_SYSTEM} \
         seabios \
         swtpm \
         swtpm-tools \

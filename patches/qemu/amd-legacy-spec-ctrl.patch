@@ -5,15 +5,15 @@ Description: preserve the legacy AMD SPEC_CTRL guest ABI
  IA32_SPEC_CTRL MSR, without changing generic x-force-features semantics.
 Author: VEXXHOST, Inc. <support@vexxhost.com>
 Forwarded: not-needed
-Last-Update: 2026-08-28
+Last-Update: 2026-11-21
 
 diff --git a/target/i386/cpu.c b/target/i386/cpu.c
-index a66e5a3..e9eaf6e 100644
+index 64177757..c51a82cd 100644
 --- a/target/i386/cpu.c
 +++ b/target/i386/cpu.c
-@@ -5038,6 +5038,20 @@ static void mark_unavailable_features(X86CPU *cpu, FeatureWord w, uint64_t mask,
-     FeatureWordInfo *f = &feature_word_info[w];
+@@ -6818,6 +6818,20 @@ void mark_unavailable_features(X86CPU *cpu, FeatureWord w, uint64_t mask,
      int i;
+     g_autofree char *feat_word_str = feature_word_description(f);
  
 +#ifdef CONFIG_KVM
 +    if (cpu->amd_legacy_spec_ctrl &&
@@ -32,7 +32,7 @@ index a66e5a3..e9eaf6e 100644
      if (!cpu->force_features) {
          env->features[w] &= ~mask;
      }
-@@ -7864,6 +7878,8 @@ static Property x86_cpu_properties[] = {
+@@ -9994,6 +10008,8 @@ static const Property x86_cpu_properties[] = {
      DEFINE_PROP_BOOL("check", X86CPU, check_cpuid, true),
      DEFINE_PROP_BOOL("enforce", X86CPU, enforce_cpuid, false),
      DEFINE_PROP_BOOL("x-force-features", X86CPU, force_features, false),
@@ -40,12 +40,12 @@ index a66e5a3..e9eaf6e 100644
 +                     amd_legacy_spec_ctrl, true),
      DEFINE_PROP_BOOL("kvm", X86CPU, expose_kvm, true),
      DEFINE_PROP_UINT32("phys-bits", X86CPU, phys_bits, 0),
-     DEFINE_PROP_BOOL("host-phys-bits", X86CPU, host_phys_bits, false),
+     DEFINE_PROP_UINT32("guest-phys-bits", X86CPU, guest_phys_bits, -1),
 diff --git a/target/i386/cpu.h b/target/i386/cpu.h
-index 705d925..7a352c8 100644
+index cee1f692..764567cc 100644
 --- a/target/i386/cpu.h
 +++ b/target/i386/cpu.h
-@@ -1930,6 +1930,13 @@ struct ArchCPU {
+@@ -2207,6 +2207,13 @@ struct ArchCPU {
       * compatibility.
       */
      bool force_features;
@@ -60,10 +60,10 @@ index 705d925..7a352c8 100644
      bool expose_tcg;
      bool migratable;
 diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
-index a0bc9ea..558ce36 100644
+index 60c79811..5d90ac33 100644
 --- a/target/i386/kvm/kvm.c
 +++ b/target/i386/kvm/kvm.c
-@@ -178,6 +178,11 @@ bool kvm_has_exception_payload(void)
+@@ -259,6 +259,11 @@ bool kvm_has_exception_payload(void)
      return has_exception_payload;
  }
  
@@ -76,10 +76,10 @@ index a0bc9ea..558ce36 100644
  {
      KVMState *s = KVM_STATE(current_accel());
 diff --git a/target/i386/kvm/kvm_i386.h b/target/i386/kvm/kvm_i386.h
-index 30fedcf..dbf147a 100644
+index 2b653442..19111f9b 100644
 --- a/target/i386/kvm/kvm_i386.h
 +++ b/target/i386/kvm/kvm_i386.h
-@@ -58,6 +58,7 @@ void kvm_put_apicbase(X86CPU *cpu, uint64_t value);
+@@ -61,6 +61,7 @@ void kvm_put_apicbase(X86CPU *cpu, uint64_t value);
  
  bool kvm_has_x2apic_api(void);
  bool kvm_has_waitpkg(void);
@@ -87,12 +87,26 @@ index 30fedcf..dbf147a 100644
  
  uint64_t kvm_swizzle_msi_ext_dest_id(uint64_t address);
  void kvm_update_msi_routes_all(void *private, bool global,
-diff --git a/tests/avocado/x86_amd_legacy_spec_ctrl.py b/tests/avocado/x86_amd_legacy_spec_ctrl.py
+diff --git a/tests/functional/x86_64/meson.build b/tests/functional/x86_64/meson.build
+index f78eec5e..c098cda9 100644
+--- a/tests/functional/x86_64/meson.build
++++ b/tests/functional/x86_64/meson.build
+@@ -10,6 +10,7 @@ test_x86_64_timeouts = {
+ }
+ 
+ tests_x86_64_system_quick = [
++  'amd_legacy_spec_ctrl',
+   'bad_vmstate',
+   'cpu_model_versions',
+   'cpu_queries',
+diff --git a/tests/functional/x86_64/test_amd_legacy_spec_ctrl.py b/tests/functional/x86_64/test_amd_legacy_spec_ctrl.py
 new file mode 100644
-index 0000000..bc03c94
+index 00000000..68befd0a
 --- /dev/null
-+++ b/tests/avocado/x86_amd_legacy_spec_ctrl.py
-@@ -0,0 +1,71 @@
++++ b/tests/functional/x86_64/test_amd_legacy_spec_ctrl.py
+@@ -0,0 +1,79 @@
++#!/usr/bin/env python3
++#
 +# Validate AMD legacy SPEC_CTRL live-migration compatibility.
 +#
 +# Copyright (c) 2026 VEXXHOST, Inc.
@@ -100,12 +114,17 @@ index 0000000..bc03c94
 +# This work is licensed under the terms of the GNU GPL, version 2 or
 +# later. See the COPYING file in the top-level directory.
 +
-+from avocado import skipUnless
-+from avocado_qemu import QemuSystemTest
++from unittest import skipUnless
++
++from qemu_test import QemuSystemTest
 +
 +
-+class X86CPUFeatureReporting(QemuSystemTest):
-+    """:avocado: tags=arch:x86_64"""
++def is_amd_host():
++    with open('/proc/cpuinfo', encoding='utf-8') as cpuinfo:
++        return 'AuthenticAMD' in cpuinfo.read()
++
++
++class X86AmdLegacySpecCtrl(QemuSystemTest):
 +
 +    @staticmethod
 +    def feature_word(words, eax, ecx, register):
@@ -128,10 +147,10 @@ index 0000000..bc03c94
 +        """Generic x-force-features still reports unsupported features."""
 +        hle_bit = 1 << 4
 +
++        self.set_machine('q35')
 +        self.require_accelerator('tcg')
 +        self.vm.add_args('-S', '-accel', 'tcg')
-+        self.set_vm_arg('-cpu',
-+                        'EPYC-Rome,hle=on,x-force-features=on')
++        self.set_vm_arg('-cpu', 'EPYC-Rome,hle=on,x-force-features=on')
 +        self.vm.launch()
 +        present, filtered = self.cpu_features()
 +
@@ -140,15 +159,12 @@ index 0000000..bc03c94
 +        self.assertEqual(self.feature_word(filtered, 7, 0, 'EBX') & hle_bit,
 +                         hle_bit)
 +
-+    @skipUnless('AuthenticAMD' in open('/proc/cpuinfo').read(),
-+                'requires an AMD KVM host')
++    @skipUnless(is_amd_host(), 'requires an AMD KVM host')
 +    def test_amd_legacy_spec_ctrl(self):
-+        """The scoped property preserves only AMD SPEC_CTRL reporting.
-+
-+        :avocado: tags=accel:kvm
-+        """
++        """The scoped property preserves only AMD SPEC_CTRL reporting."""
 +        spec_ctrl_bit = 1 << 26
 +
++        self.set_machine('q35')
 +        self.require_accelerator('kvm')
 +        self.vm.add_args('-S', '-accel', 'kvm')
 +        self.set_vm_arg('-cpu', 'EPYC-Rome,spec-ctrl=on')
@@ -164,3 +180,7 @@ index 0000000..bc03c94
 +        self.assertEqual(
 +            self.feature_word(filtered, 7, 0, 'EDX') & spec_ctrl_bit,
 +            0)
++
++
++if __name__ == '__main__':
++    QemuSystemTest.main()
