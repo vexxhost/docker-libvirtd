@@ -24,6 +24,10 @@ dch \
     --distribution "$(dpkg-parsechangelog -S Distribution)" \
     "Preserve the legacy AMD SPEC_CTRL guest ABI for live migration"
 
+# NOTE: QEMU enables -Werror when it is built from a Git checkout, which
+#       Ubuntu's package is not, so build it like Ubuntu does.
+rm -rf .git
+
 dpkg-buildpackage --build=any --unsigned-source --unsigned-changes -jauto
 
 mkdir -p /out
